@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Tuple
 
 import httpx
 from aiogram import Bot, Dispatcher, Router, types
+from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -1126,7 +1127,7 @@ async def main() -> None:
         logger.error("Environment variable TELEGRAM_BOT_TOKEN is not set")
         return
 
-    bot = Bot(token=token, parse_mode=ParseMode.HTML)
+    bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
     dp.include_router(router)
 
