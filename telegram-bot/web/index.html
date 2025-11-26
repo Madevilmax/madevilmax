@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Task Manager</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --primary: #1976d2;
+      --danger: #c62828;
+      --success: #2e7d32;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      color: #111827;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      background: var(--card);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    h1 { margin: 0; font-size: 22px; }
+    main { padding: 20px 24px 60px; }
+    .grid {
+      display: grid;
+      gap: 16px;
+    }
+    .stats-grid {
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    }
+    .card {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+    }
+    .card h2 { margin-top: 0; margin-bottom: 12px; font-size: 18px; }
+    .card h3 { margin-top: 0; margin-bottom: 10px; font-size: 16px; }
+    label { display: block; margin-bottom: 6px; font-size: 13px; color: var(--muted); }
+    input[type="text"], input[type="date"], textarea, select {
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #fff;
+      font-size: 14px;
+    }
+    textarea { resize: vertical; min-height: 72px; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 14px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .btn.secondary { background: #4b5563; }
+    .btn.danger { background: var(--danger); }
+    .btn.ghost { background: #e5e7eb; color: #111827; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 1.2fr;
+      gap: 16px;
+    }
+    .flex { display: flex; gap: 10px; flex-wrap: wrap; }
+    .checkbox-list, .radio-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 8px;
+    }
+    .pill {
+      display: inline-flex;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #eef2ff;
+      color: #4338ca;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .muted { color: var(--muted); font-size: 13px; }
+    .tasks-list { display: flex; flex-direction: column; gap: 12px; }
+    .task-group {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      background: #fff;
+    }
+    .task-group-header {
+      padding: 12px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      background: #f9fafb;
+      border-bottom: 1px solid var(--border);
+    }
+    .task-group-title { margin: 0; font-size: 16px; }
+    .task-meta { display: flex; gap: 10px; flex-wrap: wrap; }
+    .progress { font-weight: 600; }
+    .overdue { color: var(--danger); font-weight: 600; }
+    .task-users { padding: 10px 14px; border-top: 1px solid var(--border); }
+    .user-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; }
+    .user-actions { display: flex; gap: 6px; }
+    .filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+    .notification { padding: 10px; border-radius: 8px; margin-top: 8px; }
+    .notification.error { background: #fde8e8; color: #b91c1c; }
+    .notification.success { background: #ecfdf3; color: #166534; }
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.35);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 20;
+      padding: 16px;
+    }
+    .modal {
+      background: #fff;
+      border-radius: 12px;
+      max-width: 480px;
+      width: 100%;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.18);
+      animation: pop 0.2s ease;
+    }
+    @keyframes pop { from { transform: translateY(8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @media (max-width: 1024px) {
+      .layout { grid-template-columns: 1fr; }
+      header { flex-wrap: wrap; gap: 12px; }
+    }
+    @media (max-width: 640px) {
+      main { padding: 14px; }
+      .task-group-header { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Task Manager</h1>
+    <div class="flex">
+      <button class="btn" onclick="refreshAll()">🔄 Обновить данные</button>
+    </div>
+  </header>
+  <main>
+    <section class="grid stats-grid" id="statsSection"></section>
+
+    <div class="layout">
+      <div class="grid" style="grid-template-columns: 1fr;">
+        <div class="card">
+          <h2>Создание задачи</h2>
+          <div class="form-group">
+            <label for="taskText">Текст задачи</label>
+            <textarea id="taskText" placeholder="Опишите задачу"></textarea>
+          </div>
+          <div class="form-group">
+            <label>Исполнители</label>
+            <div class="checkbox-list" id="userCheckboxes"></div>
+            <div class="muted" id="noUsersMsg" style="display:none;">Нет пользователей</div>
+          </div>
+          <div class="form-group">
+            <label>Группа для уведомлений</label>
+            <div class="radio-list" id="groupRadios"></div>
+            <div class="muted" id="noGroupsMsg" style="display:none;">Группы не найдены, будет использован текущий чат</div>
+          </div>
+          <div class="form-group">
+            <label for="deadline">Дедлайн</label>
+            <input type="date" id="deadline" />
+          </div>
+          <button class="btn" onclick="createTask(event)">Создать задачу</button>
+          <div id="taskFormMsg"></div>
+        </div>
+
+        <div class="card">
+          <h2>Управление пользователями</h2>
+          <div class="form-group">
+            <label for="userLogin">Telegram @username</label>
+            <input type="text" id="userLogin" placeholder="@username" />
+          </div>
+          <div class="form-group">
+            <label for="userFullName">Полное имя</label>
+            <input type="text" id="userFullName" placeholder="Имя Фамилия" />
+          </div>
+          <div class="form-group">
+            <label for="userGroups">Группы (через запятую)</label>
+            <input type="text" id="userGroups" placeholder="group1, group2" />
+          </div>
+          <button class="btn secondary" onclick="saveUser(event)">Сохранить пользователя</button>
+          <div id="userFormMsg"></div>
+        </div>
+
+        <div class="card">
+          <h2>Настройки уведомлений</h2>
+          <div id="configToggles" class="grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px;"></div>
+          <button class="btn" style="margin-top:10px;" onclick="saveConfig(event)">Сохранить настройки</button>
+          <div id="configMsg"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Задачи</h2>
+        <div class="filters">
+          <div>
+            <label for="statusFilter">Статус</label>
+            <select id="statusFilter" onchange="renderTasks()">
+              <option value="all">Все</option>
+              <option value="active">Активные</option>
+              <option value="completed">Выполненные</option>
+              <option value="overdue">Просроченные</option>
+            </select>
+          </div>
+          <div>
+            <label for="assigneeFilter">Сотрудник</label>
+            <select id="assigneeFilter" onchange="renderTasks()"></select>
+          </div>
+          <div>
+            <label for="assignedByFilter">Назначил</label>
+            <select id="assignedByFilter" onchange="renderTasks()"></select>
+          </div>
+          <div>
+            <label for="initiatorFilter">Инициатор</label>
+            <select id="initiatorFilter" onchange="renderTasks()"></select>
+          </div>
+          <div>
+            <label for="sortFilter">Сортировка</label>
+            <select id="sortFilter" onchange="renderTasks()">
+              <option value="newest">Новые</option>
+              <option value="oldest">Старые</option>
+              <option value="deadline">По дедлайну</option>
+            </select>
+          </div>
+          <div>
+            <label for="dateFrom">Дедлайн от</label>
+            <input type="date" id="dateFrom" onchange="renderTasks()" />
+          </div>
+          <div>
+            <label for="dateTo">Дедлайн до</label>
+            <input type="date" id="dateTo" onchange="renderTasks()" />
+          </div>
+        </div>
+        <div class="tasks-list" id="tasksContainer" style="margin-top:12px;"></div>
+      </div>
+    </div>
+  </main>
+
+  <div class="modal-backdrop" id="editModal">
+    <div class="modal">
+      <h3>✏️ Редактировать задачу</h3>
+      <div class="form-group">
+        <label for="editText">Текст</label>
+        <textarea id="editText"></textarea>
+      </div>
+      <div class="form-group">
+        <label for="editDeadline">Дедлайн</label>
+        <input type="date" id="editDeadline" />
+      </div>
+      <div class="flex" style="margin-top:10px; justify-content:flex-end;">
+        <button class="btn ghost" onclick="closeModal('editModal')">Отмена</button>
+        <button class="btn" onclick="saveTaskEdit()">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="deadlineModal">
+    <div class="modal">
+      <h3>⏰ Изменить срок</h3>
+      <div class="form-group">
+        <label for="newDeadline">Новый дедлайн</label>
+        <input type="date" id="newDeadline" />
+      </div>
+      <div class="flex" style="margin-top:10px; justify-content:flex-end;">
+        <button class="btn ghost" onclick="closeModal('deadlineModal')">Отмена</button>
+        <button class="btn" onclick="saveDeadline()">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="usersModal">
+    <div class="modal">
+      <h3>👥 Управление исполнителями</h3>
+      <div id="currentUsers"></div>
+      <div style="margin:8px 0;">
+        <label>Добавить исполнителей</label>
+        <div class="checkbox-list" id="addUserCheckboxes"></div>
+      </div>
+      <div class="flex" style="margin-top:10px; justify-content:flex-end;">
+        <button class="btn ghost" onclick="closeModal('usersModal')">Отмена</button>
+        <button class="btn" onclick="saveUsersChange()">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = 'http://localhost:8000/api';
+    let tasks = [];
+    let users = [];
+    let stats = {};
+    let config = {};
+    let groups = [];
+    let expandedGroups = new Set();
+    let editContext = { taskId: null, groupKey: null };
+    let deadlineContext = { taskId: null, groupKey: null };
+    let usersContext = { groupKey: null, taskIds: [] };
+    let refreshTimer = null;
+
+    function notify(containerId, message, type = 'error') {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      if (!message) { container.innerHTML = ''; return; }
+      container.innerHTML = `<div class="notification ${type}">${message}</div>`;
+    }
+
+    async function fetchJson(path, options = {}) {
+      const response = await fetch(`${API_BASE}${path}`, {
+        headers: { 'Content-Type': 'application/json' },
+        ...options,
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || 'Ошибка запроса');
+      }
+      if (response.status === 204) return null;
+      return response.json();
+    }
+
+    async function loadTasks(silent = false) {
+      try {
+        const data = await fetchJson('/tasks');
+        tasks = data.tasks || [];
+        if (!silent) renderTasks();
+      } catch (err) {
+        notify('tasksContainer', 'Ошибка загрузки задач', 'error');
+        console.error(err);
+      }
+    }
+
+    async function loadUsers() {
+      try {
+        const data = await fetchJson('/users');
+        users = data.users || [];
+        renderUsersForm();
+        renderFilters();
+      } catch (err) {
+        users = [];
+        renderUsersForm();
+        notify('userFormMsg', 'Ошибка загрузки пользователей', 'error');
+        console.error(err);
+      }
+    }
+
+    async function loadGroups() {
+      try {
+        const data = await fetchJson('/groups');
+        groups = data.groups || [];
+        renderGroupsForm();
+      } catch (err) {
+        groups = [];
+        renderGroupsForm();
+        console.error('Ошибка загрузки групп', err);
+      }
+    }
+
+    async function loadStats(silent = false) {
+      try {
+        const data = await fetchJson('/stats');
+        stats = data || {};
+        renderStats();
+      } catch (err) {
+        if (!silent) notify('tasksContainer', 'Ошибка загрузки статистики', 'error');
+        console.error(err);
+      }
+    }
+
+    async function loadConfig() {
+      try {
+        const data = await fetchJson('/config');
+        config = data || {};
+        renderConfig();
+      } catch (err) {
+        notify('configMsg', 'Ошибка загрузки конфигурации', 'error');
+        console.error(err);
+      }
+    }
+
+    function renderStats() {
+      const container = document.getElementById('statsSection');
+      const cards = [
+        { label: 'Всего задач', value: stats.total_tasks },
+        { label: 'Активные', value: stats.active_tasks },
+        { label: 'Выполненные', value: stats.completed_tasks },
+        { label: 'Просроченные', value: stats.overdue_tasks },
+        { label: 'Пользователи', value: stats.users_count },
+        { label: 'Группы', value: stats.groups_count },
+      ];
+      container.innerHTML = cards.map(c => `
+        <div class="card">
+          <div class="muted">${c.label}</div>
+          <div style="font-size:24px;font-weight:700;">${c.value ?? '—'}</div>
+        </div>
+      `).join('');
+    }
+
+    function renderUsersForm() {
+      const list = document.getElementById('userCheckboxes');
+      const addList = document.getElementById('addUserCheckboxes');
+      const noUsers = document.getElementById('noUsersMsg');
+      list.innerHTML = '';
+      addList.innerHTML = '';
+      if (!users.length) {
+        noUsers.style.display = 'block';
+        return;
+      }
+      noUsers.style.display = 'none';
+      users.forEach(u => {
+        const id = `u-${u.username}`;
+        const label = document.createElement('label');
+        label.style.display = 'flex';
+        label.style.alignItems = 'center';
+        label.style.gap = '6px';
+        label.innerHTML = `<input type="checkbox" value="${u.username}" id="${id}" /> ${u.full_name || u.username}`;
+        list.appendChild(label.cloneNode(true));
+        const label2 = document.createElement('label');
+        label2.style.display = 'flex';
+        label2.style.alignItems = 'center';
+        label2.style.gap = '6px';
+        label2.innerHTML = `<input type="checkbox" value="${u.username}" /> ${u.full_name || u.username}`;
+        addList.appendChild(label2);
+      });
+
+      return filtered;
+    }
+
+    function dateValue(val) {
+      if (!val) return Number.MAX_SAFE_INTEGER;
+      const parts = val.includes('-') ? val.split('-') : val.split('.');
+      if (parts.length === 3) {
+        const [y1, m1, d1] = parts[0].length === 4 ? parts : [parts[2], parts[1], parts[0]];
+        return new Date(`${y1}-${m1}-${d1}`).getTime();
+      }
+      return Number.MAX_SAFE_INTEGER;
+    }
+
+    function renderGroupsForm() {
+      const container = document.getElementById('groupRadios');
+      const noGroups = document.getElementById('noGroupsMsg');
+      container.innerHTML = '';
+      if (!groups.length) {
+        noGroups.style.display = 'block';
+        return;
+      }
+      noGroups.style.display = 'none';
+      groups.forEach((g, idx) => {
+        const id = `g-${idx}`;
+        const label = document.createElement('label');
+        label.style.display = 'flex';
+        label.style.alignItems = 'center';
+        label.style.gap = '6px';
+        label.innerHTML = `<input type="radio" name="groupRadio" value="${g.id}" ${idx===0?'checked':''}/> ${g.name || g.id}`;
+        container.appendChild(label);
+      });
+    }
+
+    function renderConfig() {
+      const toggles = [
+        { key: 'task_created', label: 'Создание задач' },
+        { key: 'task_completed', label: 'Завершение задач' },
+        { key: 'task_deleted', label: 'Удаление задач' },
+        { key: 'overdue_reminder', label: 'Напоминания о просрочке' },
+      ];
+      const container = document.getElementById('configToggles');
+      container.innerHTML = toggles.map(t => {
+        const checked = config?.[t.key] ? 'checked' : '';
+        return `<label style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="cfg-${t.key}" ${checked} /> ${t.label}
+        </label>`;
+      }).join('');
+    }
+
+    function renderFilters() {
+      const assignee = document.getElementById('assigneeFilter');
+      const assignedBy = document.getElementById('assignedByFilter');
+      const initiator = document.getElementById('initiatorFilter');
+      const buildOptions = (values) => ['<option value="all">Все</option>', ...Array.from(new Set(values)).map(v => `<option value="${v}">${v}</option>`)].join('');
+      assignee.innerHTML = buildOptions(users.map(u => u.username));
+      const assigners = tasks.map(t => t.assigned_by).filter(Boolean);
+      assignedBy.innerHTML = buildOptions(assigners);
+      initiator.innerHTML = buildOptions(assigners);
+    }
+
+    function groupTasks(list) {
+      const map = new Map();
+      list.forEach(t => {
+        const key = `${t.task_text || ''}|${t.deadline || ''}|${t.group_id || ''}`;
+        if (!map.has(key)) {
+          map.set(key, { key, task_text: t.task_text || 'Без названия', deadline: t.deadline || '', group_id: t.group_id || '', tasks: [] });
+        }
+        map.get(key).tasks.push(t);
+      });
+      return Array.from(map.values());
+    }
+
+    function applyFilters(groupsList) {
+      const status = document.getElementById('statusFilter').value;
+      const assignee = document.getElementById('assigneeFilter').value;
+      const assignedBy = document.getElementById('assignedByFilter').value;
+      const initiator = document.getElementById('initiatorFilter').value;
+      const sort = document.getElementById('sortFilter').value;
+      const dateFrom = document.getElementById('dateFrom').value;
+      const dateTo = document.getElementById('dateTo').value;
+
+      let filtered = groupsList.map(g => ({ ...g, tasks: [...g.tasks] }));
+      filtered.forEach(g => {
+        g.tasks = g.tasks.filter(t => {
+          const isOverdue = isTaskOverdue(t.deadline, t.status);
+          const statusOk = status === 'all' || (status === 'overdue' ? isOverdue && t.status === 'active' : t.status === status);
+          const assigneeOk = assignee === 'all' || t.assigned_to === assignee;
+          const assignedByOk = assignedBy === 'all' || t.assigned_by === assignedBy;
+          const initiatorOk = initiator === 'all' || t.assigned_by === initiator;
+          const dateOk = checkDateRange(t.deadline, dateFrom, dateTo);
+          return statusOk && assigneeOk && assignedByOk && initiatorOk && dateOk;
+        });
+      });
+      filtered = filtered.filter(g => g.tasks.length);
+
+      filtered.sort((a, b) => {
+        if (sort === 'deadline') {
+          return dateValue(a.deadline) - dateValue(b.deadline);
+        }
+        const aCreated = Math.min(...a.tasks.map(t => dateValue(t.created_at)));
+        const bCreated = Math.min(...b.tasks.map(t => dateValue(t.created_at)));
+        return sort === 'oldest' ? aCreated - bCreated : bCreated - aCreated;
+      });
+
+      return filtered;
+    }
+
+    function dateValue(val) {
+      if (!val) return Number.MAX_SAFE_INTEGER;
+      const parts = val.includes('-') ? val.split('-') : val.split('.');
+      if (parts.length === 3) {
+        const [y1, m1, d1] = parts[0].length === 4 ? parts : [parts[2], parts[1], parts[0]];
+        return new Date(`${y1}-${m1}-${d1}`).getTime();
+      }
+      return Number.MAX_SAFE_INTEGER;
+    }
+
+    function checkDateRange(deadline, from, to) {
+      if (!from && !to) return true;
+      const d = dateValue(deadline);
+      if (from) {
+        const f = new Date(from).getTime();
+        if (d < f) return false;
+      }
+      if (to) {
+        const t = new Date(to).getTime();
+        if (d > t) return false;
+      }
+      return true;
+    }
+
+    function isTaskOverdue(deadline, status) {
+      if (!deadline || status === 'completed') return false;
+      const d = dateValue(deadline);
+      const today = new Date();
+      today.setHours(0,0,0,0);
+      return d < today.getTime();
+    }
+
+    function renderTasks() {
+      renderFilters();
+      const container = document.getElementById('tasksContainer');
+      const grouped = applyFilters(groupTasks(tasks));
+      if (!grouped.length) {
+        container.innerHTML = '<div class="notification error">Нет задач</div>';
+        return;
+      }
+      container.innerHTML = '';
+      grouped.forEach(g => {
+        const total = g.tasks.length;
+        const completed = g.tasks.filter(t => t.status === 'completed').length;
+        const overdue = g.tasks.some(t => isTaskOverdue(t.deadline, t.status));
+        const isExpanded = expandedGroups.has(g.key);
+        const groupEl = document.createElement('div');
+        groupEl.className = 'task-group';
+        groupEl.innerHTML = `
+          <div class="task-group-header">
+            <div>
+              <div class="task-group-title">${g.task_text}</div>
+              <div class="task-meta">
+                <span class="pill">Дедлайн: ${g.deadline || '—'}</span>
+                <span class="pill">Группа: ${g.group_id || '—'}</span>
+                <span class="pill progress">${completed}/${total}</span>
+                ${overdue ? '<span class="overdue">Просрочено</span>' : ''}
+              </div>
+            </div>
+            <div class="flex" style="justify-content:flex-end;">
+              <button class="btn ghost" onclick="toggleGroup('${g.key}')">${isExpanded ? '🔼' : '🔽'}</button>
+              <button class="btn secondary" onclick="openEditModal('${g.key}')">✏️ Изменить</button>
+              <button class="btn secondary" onclick="openDeadlineModal('${g.key}')">⏰ Изменить срок</button>
+              <button class="btn secondary" onclick="openUsersModal('${g.key}')">👥 Исполнители</button>
+            </div>
+          </div>
+        `;
+        if (isExpanded) {
+          const usersWrap = document.createElement('div');
+          usersWrap.className = 'task-users';
+          g.tasks.forEach(t => {
+            const row = document.createElement('div');
+            row.className = 'user-row';
+            row.innerHTML = `
+              <div>
+                <div><strong>${t.assigned_to}</strong> — ${t.status === 'completed' ? 'Выполнена' : 'Активна'}</div>
+                <div class="muted">Назначил: ${t.assigned_by || '—'}${t.deadline ? ' · Дедлайн: ' + t.deadline : ''}</div>
+              </div>
+              <div class="user-actions">
+                <button class="btn ghost" onclick="toggleStatus(${t.id}, '${t.status}')">${t.status === 'completed' ? '🔄 Вернуть' : '✅ Завершить'}</button>
+                <button class="btn danger" onclick="deleteTask(${t.id})">🗑 Удалить</button>
+              </div>
+            `;
+            usersWrap.appendChild(row);
+          });
+          groupEl.appendChild(usersWrap);
+        }
+        container.appendChild(groupEl);
+      });
+    }
+
+    function toggleGroup(key) {
+      if (expandedGroups.has(key)) expandedGroups.delete(key); else expandedGroups.add(key);
+      renderTasks();
+    }
+
+    async function createTask(e) {
+      e?.preventDefault();
+      const text = document.getElementById('taskText').value.trim();
+      const deadline = document.getElementById('deadline').value;
+      const assignees = Array.from(document.querySelectorAll('#userCheckboxes input:checked')).map(i => i.value);
+      const groupRadio = document.querySelector('input[name="groupRadio"]:checked');
+      const groupId = groupRadio ? groupRadio.value : '';
+      if (!text || !deadline || !assignees.length) {
+        notify('taskFormMsg', 'Дата указана неверно или обязательные поля не заполнены', 'error');
+        return;
+      }
+      try {
+        await fetchJson('/tasks', {
+          method: 'POST',
+          body: JSON.stringify({ task_text: text, deadline, group_id: groupId, assigned_to: assignees, assigned_by: '@web_user' }),
+        });
+        notify('taskFormMsg', 'Задача создана', 'success');
+        document.getElementById('taskText').value = '';
+        document.getElementById('deadline').value = '';
+        document.querySelectorAll('#userCheckboxes input').forEach(i => i.checked = false);
+        await loadTasks();
+      } catch (err) {
+        notify('taskFormMsg', 'Ошибка сохранения', 'error');
+        console.error(err);
+      }
+    }
+
+    async function saveUser(e) {
+      e?.preventDefault();
+      const username = document.getElementById('userLogin').value.trim();
+      const fullName = document.getElementById('userFullName').value.trim();
+      const groupsVal = document.getElementById('userGroups').value.trim();
+      if (!username) {
+        notify('userFormMsg', 'Укажите @username', 'error');
+        return;
+      }
+      try {
+        await fetchJson('/users', {
+          method: 'POST',
+          body: JSON.stringify({ username, full_name: fullName, groups: groupsVal.split(',').map(g => g.trim()).filter(Boolean) }),
+        });
+        notify('userFormMsg', 'Пользователь сохранён', 'success');
+        document.getElementById('userLogin').value = '';
+        document.getElementById('userFullName').value = '';
+        document.getElementById('userGroups').value = '';
+        await loadUsers();
+      } catch (err) {
+        notify('userFormMsg', 'Ошибка сохранения', 'error');
+        console.error(err);
+      }
+    }
+
+    async function saveConfig(e) {
+      e?.preventDefault();
+      const payload = {
+        task_created: document.getElementById('cfg-task_created')?.checked || false,
+        task_completed: document.getElementById('cfg-task_completed')?.checked || false,
+        task_deleted: document.getElementById('cfg-task_deleted')?.checked || false,
+        overdue_reminder: document.getElementById('cfg-overdue_reminder')?.checked || false,
+      };
+      try {
+        await fetchJson('/config', { method: 'POST', body: JSON.stringify(payload) });
+        notify('configMsg', 'Настройки сохранены', 'success');
+      } catch (err) {
+        notify('configMsg', 'Ошибка сохранения', 'error');
+        console.error(err);
+      }
+    }
+
+    async function toggleStatus(id, status) {
+      const newStatus = status === 'completed' ? 'active' : 'completed';
+      try {
+        await fetchJson(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify({ status: newStatus }) });
+        await loadTasks(true);
+        renderTasks();
+      } catch (err) {
+        notify('tasksContainer', 'Ошибка сохранения', 'error');
+        console.error(err);
+      }
+    }
+
+    async function deleteTask(id) {
+      if (!confirm('Удалить задачу?')) return;
+      try {
+        await fetchJson(`/tasks/${id}`, { method: 'DELETE' });
+        await loadTasks(true);
+        renderTasks();
+      } catch (err) {
+        notify('tasksContainer', 'Ошибка сохранения', 'error');
+        console.error(err);
+      }
+    }
+
+    function openEditModal(groupKey) {
+      const group = groupTasks(tasks).find(g => g.key === groupKey);
+      if (!group) return;
+      editContext = { groupKey, taskId: group.tasks[0].id };
+      document.getElementById('editText').value = group.task_text || '';
+      document.getElementById('editDeadline').value = toDateInput(group.deadline);
+      openModal('editModal');
+    }
+
+    function openDeadlineModal(groupKey) {
+      const group = groupTasks(tasks).find(g => g.key === groupKey);
+      if (!group) return;
+      deadlineContext = { groupKey, taskId: group.tasks[0].id };
+      document.getElementById('newDeadline').value = toDateInput(group.deadline);
+      openModal('deadlineModal');
+    }
+
+    function openUsersModal(groupKey) {
+      const group = groupTasks(tasks).find(g => g.key === groupKey);
+      if (!group) return;
+      usersContext = { groupKey, taskIds: group.tasks.map(t => t.id) };
+      const container = document.getElementById('currentUsers');
+      container.innerHTML = group.tasks.map(t => `
+        <label style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" value="${t.id}" /> Удалить ${t.assigned_to}
+        </label>
+      `).join('');
+      document.querySelectorAll('#addUserCheckboxes input').forEach(i => i.checked = false);
+      openModal('usersModal');
+    }
+
+    async function saveTaskEdit() {
+      if (!editContext.taskId) return;
+      const text = document.getElementById('editText').value.trim();
+      const deadline = document.getElementById('editDeadline').value;
+      try {
+        await fetchJson(`/tasks/${editContext.taskId}`, { method: 'PUT', body: JSON.stringify({ group_operation: true, task_text: text, deadline }) });
+        closeModal('editModal');
+        await loadTasks(true);
+        renderTasks();
+      } catch (err) {
+        notify('tasksContainer', 'Ошибка сохранения', 'error');
+        console.error(err);
+      }
+    }
+
+    async function saveDeadline() {
+      if (!deadlineContext.taskId) return;
+      const deadline = document.getElementById('newDeadline').value;
+      if (!deadline) { alert('Дата указана неверно'); return; }
+      try {
+        await fetchJson(`/tasks/${deadlineContext.taskId}`, { method: 'PUT', body: JSON.stringify({ group_operation: true, deadline }) });
+        closeModal('deadlineModal');
+        await loadTasks(true);
+        renderTasks();
+      } catch (err) {
+        notify('tasksContainer', 'Ошибка сохранения', 'error');
+        console.error(err);
+      }
+    }
+
+    async function saveUsersChange() {
+      const toDelete = Array.from(document.querySelectorAll('#currentUsers input:checked')).map(i => Number(i.value));
+      const toAdd = Array.from(document.querySelectorAll('#addUserCheckboxes input:checked')).map(i => i.value);
+      try {
+        for (const id of toDelete) {
+          await fetchJson(`/tasks/${id}`, { method: 'DELETE' });
+        }
+        const baseTask = tasks.find(t => t.id === usersContext.taskIds[0]);
+        const groupTaskId = baseTask?.group_task_id;
+        if (toAdd.length && groupTaskId) {
+          await fetchJson('/tasks', { method: 'POST', body: JSON.stringify({ group_task_id: groupTaskId, assigned_to: toAdd, assigned_by: '@web_user' }) });
+        }
+        closeModal('usersModal');
+        await loadTasks(true);
+        renderTasks();
+      } catch (err) {
+        notify('tasksContainer', 'Ошибка сохранения', 'error');
+        console.error(err);
+      }
+    }
+
+    function toDateInput(val) {
+      if (!val) return '';
+      if (val.includes('-')) return val;
+      const [d,m,y] = val.split('.');
+      if (d && m && y) return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+      return '';
+    }
+
+    function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+    function refreshAll() {
+      loadTasks();
+      loadStats(true);
+      loadUsers();
+      loadGroups();
+      loadConfig();
+    }
+
+    function startAutoRefresh() {
+      if (refreshTimer) clearInterval(refreshTimer);
+      refreshTimer = setInterval(() => {
+        loadTasks(true).then(renderTasks);
+        loadStats(true);
+      }, 10000);
+    }
+
+    refreshAll();
+    startAutoRefresh();
+  </script>
+</body>
+</html>
