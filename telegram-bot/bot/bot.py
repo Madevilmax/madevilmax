@@ -101,6 +101,10 @@ def save_config(config: Dict[str, object]) -> None:
 config: Dict[str, object] = load_config()
 
 
+def is_private_chat(chat: types.Chat) -> bool:
+    return chat.type == ChatType.PRIVATE
+
+
 async def get_all_tasks() -> List[dict]:
     try:
         async with httpx.AsyncClient(base_url=BASE_API_URL, timeout=15.0) as client:
@@ -351,12 +355,18 @@ selected_task_for_deadline: Dict[int, int] = {}
 
 
 async def show_main_menu(message: types.Message) -> None:
+    if not is_private_chat(message.chat):
+        await message.answer("Главное меню доступно только в личном чате.")
+        return
     is_admin = user_is_admin(message.from_user.username)
     await message.answer("🏠 Главное меню", reply_markup=main_menu_keyboard(is_admin))
 
 
 @router.message(Command("start"))
 async def cmd_start(message: types.Message) -> None:
+    if not is_private_chat(message.chat):
+        await message.answer("Используйте личный чат со мной, чтобы открыть меню.")
+        return
     text = (
         "Привет! Я помогаю управлять групповыми задачами.\n"
         "Используйте меню ниже."
