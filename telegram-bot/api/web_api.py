@@ -44,14 +44,6 @@ config_repo = ConfigRepository()
 stats_repo = StatsRepository()
 
 
-@app.get("/")
-def root() -> FileResponse:
-    index_path = Path(__file__).resolve().parent.parent / "web" / "index.html"
-    if not index_path.exists():
-        raise HTTPException(status_code=404, detail="Index not found")
-    return FileResponse(index_path)
-
-
 @app.on_event("startup")
 def startup_event() -> None:
     init_db()
