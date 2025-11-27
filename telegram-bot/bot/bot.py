@@ -17,7 +17,6 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
 BASE_API_URL = "http://localhost:8000"
-CONFIG_PATH = "config.json"
 TASKS_PER_PAGE = 5
 
 logging.basicConfig(
@@ -69,13 +68,10 @@ class ManageDeadlineState(StatesGroup):
 DEFAULT_CONFIG: Dict[str, object] = {
     "group_chat_ids": [],
     "admins": [],
-    "notifications": {
-        "task_created": True,
-        "task_completed": True,
-        "task_deleted": True,
-        "overdue_reminder": True,
-    },
-    "users": [],
+    "task_created": True,
+    "task_completed": True,
+    "task_deleted": True,
+    "overdue_reminder": True,
 }
 
 
@@ -84,33 +80,76 @@ def parse_env_list(var_name: str) -> List[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
-def load_config() -> Dict[str, object]:
-    if os.path.exists(CONFIG_PATH):
-        try:
-            with open(CONFIG_PATH, "r", encoding="utf-8") as file:
-                data = json.load(file)
-                for key, default_value in DEFAULT_CONFIG.items():
-                    data.setdefault(key, default_value)
-                return data
-        except Exception as exc:
-            logger.error("Failed to load config: %s", exc)
-    data = json.loads(json.dumps(DEFAULT_CONFIG))
-    data["admins"] = parse_env_list("ADMIN_USERNAMES")
-    if not data["users"]:
-        employees = parse_env_list("EMPLOYEE_USERNAMES") or ["@user1", "@user2"]
-        data["users"] = [{"username": u, "full_name": u.strip("@"), "groups": []} for u in employees]
-    return data
+def with_defaults(data: Dict[str, object] | None) -> Dict[str, object]:
+    merged = DEFAULT_CONFIG.copy()
+    if data:
+        merged.update(data)
+    if not merged.get("admins"):
+        merged["admins"] = parse_env_list("ADMIN_USERNAMES")
+    return merged
 
 
-def save_config(config: Dict[str, object]) -> None:
+config: Dict[str, object] = with_defaults(None)
+users_cache: List[dict] = []
+groups_cache: List[dict] = []
+
+
+async def fetch_config_from_api() -> Dict[str, object]:
+    global config
     try:
-        with open(CONFIG_PATH, "w", encoding="utf-8") as file:
-            json.dump(config, file, ensure_ascii=False, indent=2)
+        async with httpx.AsyncClient(base_url=BASE_API_URL, timeout=15.0) as client:
+            response = await client.get("/api/config")
+            response.raise_for_status()
+            remote = response.json()
+            config = with_defaults(remote)
     except Exception as exc:
-        logger.error("Failed to save config: %s", exc)
+        logger.error("Failed to fetch config from API: %s", exc)
+        config = with_defaults(config)
+    return config
 
 
-config: Dict[str, object] = load_config()
+async def save_config_to_api(cfg: Dict[str, object]) -> None:
+    try:
+        async with httpx.AsyncClient(base_url=BASE_API_URL, timeout=15.0) as client:
+            await client.post("/api/config", json=cfg)
+    except Exception as exc:
+        logger.error("Failed to persist config to API: %s", exc)
+
+
+async def fetch_users_from_api() -> List[dict]:
+    global users_cache
+    try:
+        async with httpx.AsyncClient(base_url=BASE_API_URL, timeout=15.0) as client:
+            response = await client.get("/api/users")
+            response.raise_for_status()
+            data = response.json()
+            users_cache = data.get("users", [])
+    except Exception as exc:
+        logger.error("Failed to fetch users from API: %s", exc)
+        users_cache = []
+    return users_cache
+
+
+async def fetch_groups_from_api() -> List[dict]:
+    global groups_cache
+    try:
+        async with httpx.AsyncClient(base_url=BASE_API_URL, timeout=15.0) as client:
+            response = await client.get("/api/groups")
+            response.raise_for_status()
+            data = response.json()
+            groups_cache = data.get("groups", [])
+    except Exception as exc:
+        logger.error("Failed to fetch groups from API: %s", exc)
+        groups_cache = []
+    return groups_cache
+
+
+async def sync_bot_state() -> None:
+    await asyncio.gather(fetch_config_from_api(), fetch_users_from_api(), fetch_groups_from_api())
+
+
+def is_private_chat(chat: types.Chat) -> bool:
+    return chat.type == "private"
 
 
 def is_private_chat(chat: types.Chat) -> bool:
@@ -169,6 +208,30 @@ async def add_executors_via_api(
     except Exception as exc:
         logger.error("Failed to add executors: %s", exc)
         raise RuntimeError("Не удалось добавить исполнителей") from exc
+
+
+async def upsert_user_via_api(username: str, full_name: str, groups: List[str]) -> dict:
+    payload = {"username": username, "full_name": full_name, "groups": groups}
+    try:
+        async with httpx.AsyncClient(base_url=BASE_API_URL, timeout=15.0) as client:
+            response = await client.post("/api/users", json=payload)
+            response.raise_for_status()
+            return response.json()
+    except Exception as exc:
+        logger.error("Failed to upsert user %s: %s", username, exc)
+        raise RuntimeError("Не удалось сохранить пользователя") from exc
+
+
+async def delete_user_via_api(username: str) -> None:
+    try:
+        async with httpx.AsyncClient(base_url=BASE_API_URL, timeout=15.0) as client:
+            response = await client.delete(f"/api/users/{username}")
+            if response.status_code == 404:
+                raise RuntimeError("Пользователь не найден")
+            response.raise_for_status()
+    except Exception as exc:
+        logger.error("Failed to delete user %s: %s", username, exc)
+        raise RuntimeError("Не удалось удалить пользователя") from exc
 
 
 async def update_task_status_via_api(task_id: int, status: str) -> dict:
@@ -407,6 +470,92 @@ async def menu_admin_panel(message: types.Message) -> None:
     await message.answer("👑 Админ панель", reply_markup=admin_panel_keyboard())
 
 
+def make_callback_from_message(message: types.Message, data: str) -> MessageCallbackAdapter:
+    return MessageCallbackAdapter(message, data)
+
+
+async def handle_admin_entry(message: types.Message, data: str) -> None:
+    if not is_private_chat(message.chat):
+        await message.answer("Доступно только в личном чате.")
+        return
+    if not user_is_admin(message.from_user.username):
+        await message.answer("Недостаточно прав")
+        return
+    placeholder = await message.answer("Загружаю...")
+    callback = make_callback_from_message(placeholder, data)
+    dp = Dispatcher.get_current()
+    state = await dp.fsm.get_context(
+        bot=message.bot, chat_id=message.chat.id, user_id=message.from_user.id
+    )
+
+    handlers_map = {
+        "admin:new": cb_admin_new,
+        "admin:all": cb_admin_all,
+        "admin:overdue": cb_overdue,
+        "admin:by_user": cb_by_user,
+        "admin:by_group": cb_by_group,
+        "admin:manage": cb_manage_tasks,
+        "admin:notify": cb_notify_settings,
+        "admin:users": cb_user_management,
+        "admin:admins": cb_admins_management,
+    }
+
+    handler = handlers_map.get(data)
+    if handler is None:
+        await message.answer("Неизвестное действие")
+        return
+
+    if data == "admin:new":
+        await handler(callback, state)
+    else:
+        await handler(callback)
+
+
+@router.message(F.text == "➕ Новая задача")
+async def msg_admin_new(message: types.Message) -> None:
+    await handle_admin_entry(message, "admin:new")
+
+
+@router.message(F.text == "📋 Все задачи")
+async def msg_admin_all(message: types.Message) -> None:
+    await handle_admin_entry(message, "admin:all")
+
+
+@router.message(F.text == "❌ Просроченные")
+async def msg_admin_overdue(message: types.Message) -> None:
+    await handle_admin_entry(message, "admin:overdue")
+
+
+@router.message(F.text == "👥 Задачи по сотрудникам")
+async def msg_admin_by_user(message: types.Message) -> None:
+    await handle_admin_entry(message, "admin:by_user")
+
+
+@router.message(F.text == "🏘 Задачи по группам")
+async def msg_admin_by_group(message: types.Message) -> None:
+    await handle_admin_entry(message, "admin:by_group")
+
+
+@router.message(F.text == "🛠 Управление задачами")
+async def msg_admin_manage(message: types.Message) -> None:
+    await handle_admin_entry(message, "admin:manage")
+
+
+@router.message(F.text == "⚙️ Настройки уведомлений")
+async def msg_admin_notify(message: types.Message) -> None:
+    await handle_admin_entry(message, "admin:notify")
+
+
+@router.message(F.text == "👤 Управление пользователями")
+async def msg_admin_users(message: types.Message) -> None:
+    await handle_admin_entry(message, "admin:users")
+
+
+@router.message(F.text == "👑 Управление администраторами")
+async def msg_admin_admins(message: types.Message) -> None:
+    await handle_admin_entry(message, "admin:admins")
+
+
 @router.message(lambda m: m.text == "ℹ️ Помощь")
 async def menu_help(message: types.Message) -> None:
     if not is_private_chat(message.chat):
@@ -539,8 +688,7 @@ async def cb_admin_new(callback: types.CallbackQuery, state: FSMContext) -> None
     await state.clear()
     await state.set_state(AdminCreateTask.choosing_executors)
     keyboard_rows: List[List[InlineKeyboardButton]] = []
-    users_cfg = config.get("users", [])
-    for idx, user in enumerate(users_cfg):
+    for idx, user in enumerate(users_cache):
         if idx % 2 == 0:
             keyboard_rows.append([])
         keyboard_rows[-1].append(
@@ -798,7 +946,8 @@ async def cb_by_user(callback: types.CallbackQuery) -> None:
     except RuntimeError as exc:
         await callback.answer(str(exc), show_alert=True)
         return
-    users_cfg: List[dict] = config.get("users", [])
+    await fetch_users_from_api()
+    users_cfg: List[dict] = users_cache
     lines: List[str] = []
     for user in users_cfg:
         handle = normalize_handle(user.get("username", ""))
@@ -1013,7 +1162,10 @@ async def msg_new_task_text(message: types.Message, state: FSMContext) -> None:
 
 @router.callback_query(lambda c: c.data == "admin:notify")
 async def cb_notify(callback: types.CallbackQuery) -> None:
-    settings = config.get("notifications", DEFAULT_CONFIG["notifications"])
+    settings = {
+        key: config.get(key, DEFAULT_CONFIG[key])
+        for key in ("task_created", "task_completed", "task_deleted", "overdue_reminder")
+    }
     rows = [
         [InlineKeyboardButton(text=f"{'🔔' if settings.get('task_created') else '🔕'} Создание задач", callback_data="notify:task_created")],
         [InlineKeyboardButton(text=f"{'✅' if settings.get('task_completed') else '❌'} Завершение задач", callback_data="notify:task_completed")],
@@ -1028,9 +1180,8 @@ async def cb_notify(callback: types.CallbackQuery) -> None:
 @router.callback_query(lambda c: c.data and c.data.startswith("notify:"))
 async def cb_notify_toggle(callback: types.CallbackQuery) -> None:
     _, key = callback.data.split(":")
-    settings = config.setdefault("notifications", DEFAULT_CONFIG["notifications"].copy())
-    settings[key] = not settings.get(key, True)
-    save_config(config)
+    config[key] = not config.get(key, True)
+    await save_config_to_api(config)
     await cb_notify(callback)
 
 
@@ -1049,9 +1200,9 @@ async def cb_users(callback: types.CallbackQuery) -> None:
 @router.callback_query(lambda c: c.data and c.data.startswith("users:"))
 async def cb_users_actions(callback: types.CallbackQuery, state: FSMContext) -> None:
     action = callback.data.split(":")[1]
-    users_cfg: List[dict] = config.setdefault("users", [])
+    await fetch_users_from_api()
     if action == "list":
-        lines = [f"{u.get('full_name', '')} ({u.get('username')})" for u in users_cfg]
+        lines = [f"{u.get('full_name', '')} ({u.get('username')})" for u in users_cache]
         await callback.message.edit_text("\n".join(lines) or "Нет пользователей")
         await callback.answer()
         return
@@ -1061,7 +1212,7 @@ async def cb_users_actions(callback: types.CallbackQuery, state: FSMContext) -> 
         await callback.answer()
         return
     if action == "remove":
-        buttons = [[InlineKeyboardButton(text=u.get("username"), callback_data=f"users:remove:{u.get('username')}")] for u in users_cfg]
+        buttons = [[InlineKeyboardButton(text=u.get("username"), callback_data=f"users:remove:{u.get('username')}")] for u in users_cache]
         buttons.append([InlineKeyboardButton(text="❌ Отмена", callback_data="menu:admin")])
         await callback.message.edit_text("Выберите пользователя для удаления", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
         await callback.answer()
@@ -1071,10 +1222,12 @@ async def cb_users_actions(callback: types.CallbackQuery, state: FSMContext) -> 
 @router.callback_query(lambda c: c.data and c.data.startswith("users:remove:"))
 async def cb_remove_user(callback: types.CallbackQuery) -> None:
     username = callback.data.split(":")[2]
-    users_cfg: List[dict] = config.setdefault("users", [])
-    config["users"] = [u for u in users_cfg if u.get("username") != username]
-    save_config(config)
-    await callback.message.edit_text("Пользователь удален")
+    try:
+        await delete_user_via_api(username)
+        await fetch_users_from_api()
+        await callback.message.edit_text("Пользователь удален")
+    except RuntimeError as exc:
+        await callback.message.edit_text(str(exc))
     await callback.answer()
 
 
@@ -1096,10 +1249,13 @@ async def add_user_fullname(message: types.Message, state: FSMContext) -> None:
 async def add_user_groups(message: types.Message, state: FSMContext) -> None:
     data = await state.get_data()
     groups = [g.strip() for g in message.text.split(",") if g.strip()]
-    config.setdefault("users", []).append(
-        {"username": data.get("username"), "full_name": data.get("full_name"), "groups": groups}
-    )
-    save_config(config)
+    try:
+        await upsert_user_via_api(data.get("username"), data.get("full_name"), groups)
+        await fetch_users_from_api()
+    except RuntimeError as exc:
+        await message.answer(str(exc))
+        await state.clear()
+        return
     await state.clear()
     await message.answer("Пользователь добавлен", reply_markup=admin_panel_keyboard())
 
@@ -1119,6 +1275,7 @@ async def cb_admins(callback: types.CallbackQuery) -> None:
 @router.callback_query(lambda c: c.data and c.data.startswith("admins:"))
 async def cb_admins_actions(callback: types.CallbackQuery, state: FSMContext) -> None:
     action = callback.data.split(":")[1]
+    await fetch_config_from_api()
     if action == "list":
         lines = [admin for admin in config.get("admins", [])]
         await callback.message.edit_text("\n".join(lines) or "Нет администраторов")
@@ -1141,7 +1298,7 @@ async def cb_admins_actions(callback: types.CallbackQuery, state: FSMContext) ->
 async def cb_remove_admin(callback: types.CallbackQuery) -> None:
     username = callback.data.split(":")[2]
     config["admins"] = [adm for adm in config.get("admins", []) if adm != username]
-    save_config(config)
+    await save_config_to_api(config)
     await callback.message.edit_text("Администратор удален")
     await callback.answer()
 
@@ -1152,7 +1309,7 @@ async def add_admin_username(message: types.Message, state: FSMContext) -> None:
     admins = set(config.get("admins", []))
     admins.add(username)
     config["admins"] = list(admins)
-    save_config(config)
+    await save_config_to_api(config)
     await state.clear()
     await message.answer("Администратор добавлен", reply_markup=admin_panel_keyboard())
 
@@ -1198,6 +1355,7 @@ async def main() -> None:
     dp.include_router(router)
 
     logger.info("Bot started")
+    await sync_bot_state()
     await dp.start_polling(bot)
 
 

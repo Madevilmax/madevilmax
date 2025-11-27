@@ -40,6 +40,8 @@ class Group(BaseModel):
 
 
 class Config(BaseModel):
+    group_chat_ids: List[str] = Field(default_factory=list)
+    admins: List[str] = Field(default_factory=list)
     task_created: bool = True
     task_completed: bool = True
     task_deleted: bool = True

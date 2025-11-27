@@ -101,6 +101,8 @@ def init_db() -> None:
                 ("task_completed", "true"),
                 ("task_deleted", "true"),
                 ("overdue_reminder", "true"),
+                ("admins", "[]"),
+                ("group_chat_ids", "[]"),
             ],
         )
         connection.commit()

@@ -1,4 +1,5 @@
 import logging
+import logging
 from datetime import datetime
 
 from db.database import get_connection
