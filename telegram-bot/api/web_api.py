@@ -3,6 +3,8 @@ from typing import Union
 
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from pathlib import Path
 
 from db.database import init_db
 from models import (
@@ -40,6 +42,14 @@ users_repo = UsersRepository()
 groups_repo = GroupsRepository()
 config_repo = ConfigRepository()
 stats_repo = StatsRepository()
+
+
+@app.get("/")
+def root() -> FileResponse:
+    index_path = Path(__file__).resolve().parent.parent / "web" / "index.html"
+    if not index_path.exists():
+        raise HTTPException(status_code=404, detail="Index not found")
+    return FileResponse(index_path)
 
 
 @app.on_event("startup")

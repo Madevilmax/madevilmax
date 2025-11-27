@@ -11,6 +11,7 @@ from aiogram import Bot, Dispatcher, Router, types
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
+from aiogram import F
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
@@ -26,6 +27,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 router = Router()
+
+
+class MessageCallbackAdapter:
+    def __init__(self, message: types.Message, data: str):
+        self.message = message
+        self.from_user = message.from_user
+        self.data = data
+
+    async def answer(self, text: str = "", show_alert: bool = False) -> None:  # noqa: ARG002
+        if text:
+            await self.message.answer(text)
 
 
 class AdminCreateTask(StatesGroup):
@@ -270,30 +282,29 @@ def main_menu_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
     )
 
 
-def my_tasks_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="🟡 Текущие задачи", callback_data="my:active")],
-            [InlineKeyboardButton(text="🟢 Выполненные задачи", callback_data="my:completed")],
-            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")],
-        ]
+def my_tasks_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🟡 Текущие задачи")],
+            [KeyboardButton(text="🟢 Выполненные задачи")],
+            [KeyboardButton(text="🏠 Главное меню")],
+        ],
+        resize_keyboard=True,
+        input_field_placeholder="Выберите список задач",
     )
 
 
-def admin_panel_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="➕ Новая задача", callback_data="admin:new")],
-            [InlineKeyboardButton(text="📋 Все задачи", callback_data="admin:all")],
-            [InlineKeyboardButton(text="❌ Просроченные", callback_data="admin:overdue")],
-            [InlineKeyboardButton(text="👥 Задачи по сотрудникам", callback_data="admin:by_user")],
-            [InlineKeyboardButton(text="🏘 Задачи по группам", callback_data="admin:by_group")],
-            [InlineKeyboardButton(text="🛠 Управление задачами", callback_data="admin:manage")],
-            [InlineKeyboardButton(text="⚙️ Настройки уведомлений", callback_data="admin:notify")],
-            [InlineKeyboardButton(text="👤 Управление пользователями", callback_data="admin:users")],
-            [InlineKeyboardButton(text="👑 Управление администраторами", callback_data="admin:admins")],
-            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")],
-        ]
+def admin_panel_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="➕ Новая задача"), KeyboardButton(text="📋 Все задачи")],
+            [KeyboardButton(text="❌ Просроченные"), KeyboardButton(text="👥 Задачи по сотрудникам")],
+            [KeyboardButton(text="🏘 Задачи по группам"), KeyboardButton(text="🛠 Управление задачами")],
+            [KeyboardButton(text="⚙️ Настройки уведомлений"), KeyboardButton(text="👤 Управление пользователями")],
+            [KeyboardButton(text="👑 Управление администраторами"), KeyboardButton(text="🏠 Главное меню")],
+        ],
+        resize_keyboard=True,
+        input_field_placeholder="Выберите действие администратора",
     )
 
 
@@ -396,6 +407,92 @@ async def menu_admin_panel(message: types.Message) -> None:
     await message.answer("👑 Админ панель", reply_markup=admin_panel_keyboard())
 
 
+def make_callback_from_message(message: types.Message, data: str) -> MessageCallbackAdapter:
+    return MessageCallbackAdapter(message, data)
+
+
+async def handle_admin_entry(message: types.Message, data: str) -> None:
+    if not is_private_chat(message.chat):
+        await message.answer("Доступно только в личном чате.")
+        return
+    if not user_is_admin(message.from_user.username):
+        await message.answer("Недостаточно прав")
+        return
+    placeholder = await message.answer("Загружаю...")
+    callback = make_callback_from_message(placeholder, data)
+    dp = Dispatcher.get_current()
+    state = await dp.fsm.get_context(
+        bot=message.bot, chat_id=message.chat.id, user_id=message.from_user.id
+    )
+
+    handlers_map = {
+        "admin:new": cb_admin_new,
+        "admin:all": cb_admin_all,
+        "admin:overdue": cb_overdue,
+        "admin:by_user": cb_by_user,
+        "admin:by_group": cb_by_group,
+        "admin:manage": cb_manage_tasks,
+        "admin:notify": cb_notify_settings,
+        "admin:users": cb_user_management,
+        "admin:admins": cb_admins_management,
+    }
+
+    handler = handlers_map.get(data)
+    if handler is None:
+        await message.answer("Неизвестное действие")
+        return
+
+    if data == "admin:new":
+        await handler(callback, state)
+    else:
+        await handler(callback)
+
+
+@router.message(F.text == "➕ Новая задача")
+async def msg_admin_new(message: types.Message) -> None:
+    await handle_admin_entry(message, "admin:new")
+
+
+@router.message(F.text == "📋 Все задачи")
+async def msg_admin_all(message: types.Message) -> None:
+    await handle_admin_entry(message, "admin:all")
+
+
+@router.message(F.text == "❌ Просроченные")
+async def msg_admin_overdue(message: types.Message) -> None:
+    await handle_admin_entry(message, "admin:overdue")
+
+
+@router.message(F.text == "👥 Задачи по сотрудникам")
+async def msg_admin_by_user(message: types.Message) -> None:
+    await handle_admin_entry(message, "admin:by_user")
+
+
+@router.message(F.text == "🏘 Задачи по группам")
+async def msg_admin_by_group(message: types.Message) -> None:
+    await handle_admin_entry(message, "admin:by_group")
+
+
+@router.message(F.text == "🛠 Управление задачами")
+async def msg_admin_manage(message: types.Message) -> None:
+    await handle_admin_entry(message, "admin:manage")
+
+
+@router.message(F.text == "⚙️ Настройки уведомлений")
+async def msg_admin_notify(message: types.Message) -> None:
+    await handle_admin_entry(message, "admin:notify")
+
+
+@router.message(F.text == "👤 Управление пользователями")
+async def msg_admin_users(message: types.Message) -> None:
+    await handle_admin_entry(message, "admin:users")
+
+
+@router.message(F.text == "👑 Управление администраторами")
+async def msg_admin_admins(message: types.Message) -> None:
+    await handle_admin_entry(message, "admin:admins")
+
+
 @router.message(lambda m: m.text == "ℹ️ Помощь")
 async def menu_help(message: types.Message) -> None:
     if not is_private_chat(message.chat):
@@ -418,7 +515,7 @@ async def cb_menu_main(callback: types.CallbackQuery) -> None:
 
 @router.callback_query(lambda c: c.data == "menu:mytasks")
 async def cb_menu_mytasks(callback: types.CallbackQuery) -> None:
-    await callback.message.edit_text("📋 Мои задачи", reply_markup=my_tasks_keyboard())
+    await callback.message.answer("📋 Мои задачи", reply_markup=my_tasks_keyboard())
     await callback.answer()
 
 
@@ -431,47 +528,58 @@ async def cb_menu_admin(callback: types.CallbackQuery) -> None:
     await callback.answer()
 
 
-@router.callback_query(lambda c: c.data and c.data.startswith("my:"))
-async def cb_my_tasks(callback: types.CallbackQuery) -> None:
-    username = callback.from_user.username
+async def show_my_tasks_selection(message: types.Message, selection: str) -> None:
+    username = message.from_user.username if message.from_user else None
     if not username:
-        await callback.answer("Username не найден", show_alert=True)
+        await message.answer("Username не найден", reply_markup=my_tasks_keyboard())
         return
     handle = normalize_handle(username)
     try:
         tasks = await get_all_tasks()
     except RuntimeError as exc:
-        await callback.answer(str(exc), show_alert=True)
+        await message.answer(str(exc), reply_markup=my_tasks_keyboard())
         return
 
-    if callback.data == "my:active":
+    if selection == "active":
         active_tasks = [t for t in tasks if t.get("assigned_to") == handle and t.get("status") == "active"]
         if not active_tasks:
-            await callback.message.edit_text("Нет активных задач", reply_markup=my_tasks_keyboard())
-            await callback.answer()
+            await message.answer("Нет активных задач", reply_markup=my_tasks_keyboard())
             return
         for task in active_tasks:
             buttons = InlineKeyboardMarkup(
                 inline_keyboard=[[btn for btn in build_task_buttons(task, for_user=True)]]
             )
-            await callback.message.answer(format_task_card(task), reply_markup=buttons)
-        await callback.answer()
+            await message.answer(format_task_card(task), reply_markup=buttons)
         return
 
-    if callback.data == "my:completed":
+    if selection == "completed":
         completed_tasks = [t for t in tasks if t.get("assigned_to") == handle and t.get("status") == "completed"]
         completed_tasks = sorted(completed_tasks, key=lambda t: t.get("completed_at", ""), reverse=True)[:5]
         if not completed_tasks:
-            await callback.message.edit_text("Нет выполненных задач", reply_markup=my_tasks_keyboard())
-            await callback.answer()
+            await message.answer("Нет выполненных задач", reply_markup=my_tasks_keyboard())
             return
         for task in completed_tasks:
             buttons = InlineKeyboardMarkup(
                 inline_keyboard=[[btn for btn in build_task_buttons(task, for_completed=True, for_user=True)]]
             )
-            await callback.message.answer(format_task_card(task, include_completed_at=True), reply_markup=buttons)
-        await callback.answer()
-        return
+            await message.answer(format_task_card(task, include_completed_at=True), reply_markup=buttons)
+
+
+@router.message(F.text == "🟡 Текущие задачи")
+async def msg_my_active(message: types.Message) -> None:
+    await show_my_tasks_selection(message, "active")
+
+
+@router.message(F.text == "🟢 Выполненные задачи")
+async def msg_my_completed(message: types.Message) -> None:
+    await show_my_tasks_selection(message, "completed")
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("my:"))
+async def cb_my_tasks(callback: types.CallbackQuery) -> None:
+    selection = callback.data.split(":")[1]
+    await show_my_tasks_selection(callback.message, selection)
+    await callback.answer()
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("task:"))
