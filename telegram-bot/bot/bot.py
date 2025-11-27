@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Tuple
 
 import httpx
 from aiogram import Bot, Dispatcher, Router, types
+from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -98,6 +99,10 @@ def save_config(config: Dict[str, object]) -> None:
 
 
 config: Dict[str, object] = load_config()
+
+
+def is_private_chat(chat: types.Chat) -> bool:
+    return chat.type == "private"
 
 
 async def get_all_tasks() -> List[dict]:
@@ -350,12 +355,18 @@ selected_task_for_deadline: Dict[int, int] = {}
 
 
 async def show_main_menu(message: types.Message) -> None:
+    if not is_private_chat(message.chat):
+        await message.answer("Главное меню доступно только в личном чате.")
+        return
     is_admin = user_is_admin(message.from_user.username)
     await message.answer("🏠 Главное меню", reply_markup=main_menu_keyboard(is_admin))
 
 
 @router.message(Command("start"))
 async def cmd_start(message: types.Message) -> None:
+    if not is_private_chat(message.chat):
+        await message.answer("Используйте личный чат со мной, чтобы открыть меню.")
+        return
     text = (
         "Привет! Я помогаю управлять групповыми задачами.\n"
         "Используйте меню ниже."
@@ -1126,7 +1137,7 @@ async def main() -> None:
         logger.error("Environment variable TELEGRAM_BOT_TOKEN is not set")
         return
 
-    bot = Bot(token=token, parse_mode=ParseMode.HTML)
+    bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
     dp.include_router(router)
 

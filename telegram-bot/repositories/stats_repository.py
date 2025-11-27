@@ -44,8 +44,8 @@ class StatsRepository:
                 active_tasks=active_tasks,
                 completed_tasks=completed_tasks,
                 overdue_tasks=overdue_tasks,
-                total_users=total_users,
-                total_groups=total_groups,
+                users_count=total_users,
+                groups_count=total_groups,
             )
         except Exception:
             logging.exception("Failed to collect stats")
