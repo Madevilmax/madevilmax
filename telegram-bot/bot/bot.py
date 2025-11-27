@@ -8,11 +8,12 @@ from typing import Dict, List, Optional, Tuple
 
 import httpx
 from aiogram import Bot, Dispatcher, Router, types
+from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
 BASE_API_URL = "http://localhost:8000"
 CONFIG_PATH = "config.json"
@@ -98,6 +99,10 @@ def save_config(config: Dict[str, object]) -> None:
 
 
 config: Dict[str, object] = load_config()
+
+
+def is_private_chat(chat: types.Chat) -> bool:
+    return chat.type == "private"
 
 
 async def get_all_tasks() -> List[dict]:
@@ -255,11 +260,14 @@ def user_is_admin(username: Optional[str]) -> bool:
     return handle in set(config.get("admins", []))
 
 
-def main_menu_keyboard(is_admin: bool) -> InlineKeyboardMarkup:
-    buttons = [[InlineKeyboardButton(text="📋 Мои задачи", callback_data="menu:mytasks")]]
+def main_menu_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
+    buttons = [[KeyboardButton(text="📋 Мои задачи")]]
     if is_admin:
-        buttons.append([InlineKeyboardButton(text="👑 Админ панель", callback_data="menu:admin")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+        buttons.append([KeyboardButton(text="👑 Админ панель")])
+    buttons.append([KeyboardButton(text="ℹ️ Помощь")])
+    return ReplyKeyboardMarkup(
+        keyboard=buttons, resize_keyboard=True, input_field_placeholder="Выберите действие"
+    )
 
 
 def my_tasks_keyboard() -> InlineKeyboardMarkup:
@@ -350,12 +358,18 @@ selected_task_for_deadline: Dict[int, int] = {}
 
 
 async def show_main_menu(message: types.Message) -> None:
+    if not is_private_chat(message.chat):
+        await message.answer("Главное меню доступно только в личном чате.")
+        return
     is_admin = user_is_admin(message.from_user.username)
     await message.answer("🏠 Главное меню", reply_markup=main_menu_keyboard(is_admin))
 
 
 @router.message(Command("start"))
 async def cmd_start(message: types.Message) -> None:
+    if not is_private_chat(message.chat):
+        await message.answer("Используйте личный чат со мной, чтобы открыть меню.")
+        return
     text = (
         "Привет! Я помогаю управлять групповыми задачами.\n"
         "Используйте меню ниже."
@@ -363,9 +377,40 @@ async def cmd_start(message: types.Message) -> None:
     await message.answer(text, reply_markup=main_menu_keyboard(user_is_admin(message.from_user.username)))
 
 
+@router.message(lambda m: m.text == "📋 Мои задачи")
+async def menu_my_tasks(message: types.Message) -> None:
+    if not is_private_chat(message.chat):
+        await message.answer("Меню доступно только в личном чате.")
+        return
+    await message.answer("📋 Мои задачи", reply_markup=my_tasks_keyboard())
+
+
+@router.message(lambda m: m.text == "👑 Админ панель")
+async def menu_admin_panel(message: types.Message) -> None:
+    if not is_private_chat(message.chat):
+        await message.answer("Меню доступно только в личном чате.")
+        return
+    if not user_is_admin(message.from_user.username):
+        await message.answer("Недостаточно прав")
+        return
+    await message.answer("👑 Админ панель", reply_markup=admin_panel_keyboard())
+
+
+@router.message(lambda m: m.text == "ℹ️ Помощь")
+async def menu_help(message: types.Message) -> None:
+    if not is_private_chat(message.chat):
+        await message.answer("Меню доступно только в личном чате.")
+        return
+    help_text = (
+        "Нажимайте кнопки панели, чтобы открыть список задач или админ-панель.\n"
+        "Для детальных действий используйте кнопки под сообщениями."
+    )
+    await message.answer(help_text, reply_markup=main_menu_keyboard(user_is_admin(message.from_user.username)))
+
+
 @router.callback_query(lambda c: c.data == "menu:main")
 async def cb_menu_main(callback: types.CallbackQuery) -> None:
-    await callback.message.edit_text(
+    await callback.message.answer(
         "🏠 Главное меню", reply_markup=main_menu_keyboard(user_is_admin(callback.from_user.username))
     )
     await callback.answer()
@@ -1126,7 +1171,7 @@ async def main() -> None:
         logger.error("Environment variable TELEGRAM_BOT_TOKEN is not set")
         return
 
-    bot = Bot(token=token, parse_mode=ParseMode.HTML)
+    bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
     dp.include_router(router)
 
