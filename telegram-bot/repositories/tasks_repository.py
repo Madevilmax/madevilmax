@@ -115,18 +115,43 @@ class TasksRepository:
         finally:
             conn.close()
 
-    def get_all_tasks(self) -> List[Task]:
+    def get_all_tasks(self) -> List[dict]:
         conn = get_connection()
         cursor = conn.cursor()
         try:
             cursor.execute(
                 """
-                SELECT id, group_task_id, assigned_to, assigned_by, status, created_at, completed_at
-                FROM tasks
+                SELECT
+                    t.id,
+                    t.group_task_id,
+                    tg.task_text,
+                    tg.deadline,
+                    tg.group_id,
+                    t.assigned_to,
+                    t.assigned_by,
+                    t.status,
+                    t.created_at,
+                    t.completed_at
+                FROM tasks t
+                JOIN task_groups tg ON t.group_task_id = tg.group_task_id
                 """
             )
             rows = cursor.fetchall()
-            return [self._row_to_task(row) for row in rows]
+            return [
+                {
+                    "id": row[0],
+                    "group_task_id": row[1],
+                    "task_text": row[2],
+                    "deadline": row[3],
+                    "group_id": row[4],
+                    "assigned_to": row[5],
+                    "assigned_by": row[6],
+                    "status": row[7],
+                    "created_at": row[8],
+                    "completed_at": row[9],
+                }
+                for row in rows
+            ]
         except Exception:
             logging.exception("Failed to fetch all tasks")
             raise

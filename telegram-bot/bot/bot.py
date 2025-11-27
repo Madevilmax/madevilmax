@@ -13,7 +13,7 @@ from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
 BASE_API_URL = "http://localhost:8000"
 CONFIG_PATH = "config.json"
@@ -260,11 +260,14 @@ def user_is_admin(username: Optional[str]) -> bool:
     return handle in set(config.get("admins", []))
 
 
-def main_menu_keyboard(is_admin: bool) -> InlineKeyboardMarkup:
-    buttons = [[InlineKeyboardButton(text="📋 Мои задачи", callback_data="menu:mytasks")]]
+def main_menu_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
+    buttons = [[KeyboardButton(text="📋 Мои задачи")]]
     if is_admin:
-        buttons.append([InlineKeyboardButton(text="👑 Админ панель", callback_data="menu:admin")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+        buttons.append([KeyboardButton(text="👑 Админ панель")])
+    buttons.append([KeyboardButton(text="ℹ️ Помощь")])
+    return ReplyKeyboardMarkup(
+        keyboard=buttons, resize_keyboard=True, input_field_placeholder="Выберите действие"
+    )
 
 
 def my_tasks_keyboard() -> InlineKeyboardMarkup:
@@ -374,9 +377,40 @@ async def cmd_start(message: types.Message) -> None:
     await message.answer(text, reply_markup=main_menu_keyboard(user_is_admin(message.from_user.username)))
 
 
+@router.message(lambda m: m.text == "📋 Мои задачи")
+async def menu_my_tasks(message: types.Message) -> None:
+    if not is_private_chat(message.chat):
+        await message.answer("Меню доступно только в личном чате.")
+        return
+    await message.answer("📋 Мои задачи", reply_markup=my_tasks_keyboard())
+
+
+@router.message(lambda m: m.text == "👑 Админ панель")
+async def menu_admin_panel(message: types.Message) -> None:
+    if not is_private_chat(message.chat):
+        await message.answer("Меню доступно только в личном чате.")
+        return
+    if not user_is_admin(message.from_user.username):
+        await message.answer("Недостаточно прав")
+        return
+    await message.answer("👑 Админ панель", reply_markup=admin_panel_keyboard())
+
+
+@router.message(lambda m: m.text == "ℹ️ Помощь")
+async def menu_help(message: types.Message) -> None:
+    if not is_private_chat(message.chat):
+        await message.answer("Меню доступно только в личном чате.")
+        return
+    help_text = (
+        "Нажимайте кнопки панели, чтобы открыть список задач или админ-панель.\n"
+        "Для детальных действий используйте кнопки под сообщениями."
+    )
+    await message.answer(help_text, reply_markup=main_menu_keyboard(user_is_admin(message.from_user.username)))
+
+
 @router.callback_query(lambda c: c.data == "menu:main")
 async def cb_menu_main(callback: types.CallbackQuery) -> None:
-    await callback.message.edit_text(
+    await callback.message.answer(
         "🏠 Главное меню", reply_markup=main_menu_keyboard(user_is_admin(callback.from_user.username))
     )
     await callback.answer()
