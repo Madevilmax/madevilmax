@@ -152,6 +152,10 @@ def is_private_chat(chat: types.Chat) -> bool:
     return chat.type == "private"
 
 
+def is_private_chat(chat: types.Chat) -> bool:
+    return chat.type == "private"
+
+
 async def get_all_tasks() -> List[dict]:
     try:
         async with httpx.AsyncClient(base_url=BASE_API_URL, timeout=15.0) as client:
