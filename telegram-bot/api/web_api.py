@@ -3,6 +3,8 @@ from typing import Union
 
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from pathlib import Path
 
 from db.database import init_db
 from models import (
