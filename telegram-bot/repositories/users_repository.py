@@ -80,3 +80,19 @@ class UsersRepository:
             raise
         finally:
             conn.close()
+
+    def delete_user(self, username: str) -> None:
+        conn = get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT 1 FROM users WHERE username = ?", (username,))
+            if cursor.fetchone() is None:
+                raise ValueError(f"User {username} does not exist")
+            cursor.execute("DELETE FROM users WHERE username = ?", (username,))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            logging.exception("Failed to delete user %s", username)
+            raise
+        finally:
+            conn.close()

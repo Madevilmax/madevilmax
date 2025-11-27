@@ -1,0 +1,11 @@
+{
+  "group_chat_ids": [],
+  "admins": ["@poznarev"],
+  "notifications": {
+    "task_created": true,
+    "task_completed": true,
+    "task_deleted": true,
+    "overdue_reminder": true
+  },
+  "users": []
+}
