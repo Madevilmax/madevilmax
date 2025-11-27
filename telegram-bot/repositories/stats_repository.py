@@ -1,4 +1,5 @@
 import logging
+import logging
 from datetime import datetime
 
 from db.database import get_connection
@@ -44,8 +45,8 @@ class StatsRepository:
                 active_tasks=active_tasks,
                 completed_tasks=completed_tasks,
                 overdue_tasks=overdue_tasks,
-                total_users=total_users,
-                total_groups=total_groups,
+                users_count=total_users,
+                groups_count=total_groups,
             )
         except Exception:
             logging.exception("Failed to collect stats")

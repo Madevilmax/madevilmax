@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class TaskGroup(BaseModel):
@@ -26,6 +26,35 @@ class Task(BaseModel):
         if value not in {"active", "completed"}:
             raise ValueError("status must be 'active' or 'completed'")
         return value
+
+
+class User(BaseModel):
+    username: str
+    full_name: Optional[str] = None
+    groups: List[str] = Field(default_factory=list)
+
+
+class Group(BaseModel):
+    id: str
+    name: str
+
+
+class Config(BaseModel):
+    group_chat_ids: List[str] = Field(default_factory=list)
+    admins: List[str] = Field(default_factory=list)
+    task_created: bool = True
+    task_completed: bool = True
+    task_deleted: bool = True
+    overdue_reminder: bool = True
+
+
+class Stats(BaseModel):
+    total_tasks: int = 0
+    active_tasks: int = 0
+    completed_tasks: int = 0
+    overdue_tasks: int = 0
+    users_count: int = 0
+    groups_count: int = 0
 
 
 class TaskCreate(BaseModel):
