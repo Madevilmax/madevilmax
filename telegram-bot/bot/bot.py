@@ -102,7 +102,7 @@ config: Dict[str, object] = load_config()
 
 
 def is_private_chat(chat: types.Chat) -> bool:
-    return chat.type == "private"
+    return chat.type == ChatType.PRIVATE
 
 
 async def get_all_tasks() -> List[dict]:
