@@ -43,6 +43,17 @@ class MessageCallbackAdapter:
             await self.message.answer(text)
 
 
+class MessageCallbackAdapter:
+    def __init__(self, message: types.Message, data: str):
+        self.message = message
+        self.from_user = message.from_user
+        self.data = data
+
+    async def answer(self, text: str = "", show_alert: bool = False) -> None:  # noqa: ARG002
+        if text:
+            await self.message.answer(text)
+
+
 class AdminCreateTask(StatesGroup):
     choosing_executors = State()
     task_text = State()
@@ -150,6 +161,12 @@ async def fetch_groups_from_api() -> List[dict]:
 
 async def sync_bot_state() -> None:
     await asyncio.gather(fetch_config_from_api(), fetch_users_from_api(), fetch_groups_from_api())
+
+async def sync_bot_state() -> None:
+    await asyncio.gather(fetch_config_from_api(), fetch_users_from_api(), fetch_groups_from_api())
+
+def is_private_chat(chat: types.Chat) -> bool:
+    return chat.type == "private"
 
 
 def is_private_chat(chat: types.Chat) -> bool:
@@ -483,6 +500,7 @@ async def handle_admin_entry(message: types.Message, data: str) -> None:
         return
     placeholder = await message.answer("Загружаю...")
     callback = make_callback_from_message(placeholder, data)
+    dp = Dispatcher.get_current()
     state = await dp.fsm.get_context(
         bot=message.bot, chat_id=message.chat.id, user_id=message.from_user.id
     )
@@ -493,10 +511,10 @@ async def handle_admin_entry(message: types.Message, data: str) -> None:
         "admin:overdue": cb_overdue,
         "admin:by_user": cb_by_user,
         "admin:by_group": cb_by_group,
-        "admin:manage": cb_manage,
-        "admin:notify": cb_notify,
-        "admin:users": cb_users,
-        "admin:admins": cb_admins,
+        "admin:manage": cb_manage_tasks,
+        "admin:notify": cb_notify_settings,
+        "admin:users": cb_user_management,
+        "admin:admins": cb_admins_management,
     }
 
     handler = handlers_map.get(data)
@@ -1350,6 +1368,8 @@ async def main() -> None:
         return
 
     bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    dp = Dispatcher()
+    dp.include_router(router)
 
     logger.info("Bot started")
     await sync_bot_state()
