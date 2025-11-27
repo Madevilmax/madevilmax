@@ -26,6 +26,21 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 router = Router()
+# Global dispatcher so helpers can access FSM without relying on deprecated
+# Dispatcher.get_current().
+dp = Dispatcher()
+dp.include_router(router)
+
+
+class MessageCallbackAdapter:
+    def __init__(self, message: types.Message, data: str):
+        self.message = message
+        self.from_user = message.from_user
+        self.data = data
+
+    async def answer(self, text: str = "", show_alert: bool = False) -> None:  # noqa: ARG002
+        if text:
+            await self.message.answer(text)
 
 
 class MessageCallbackAdapter:
@@ -147,6 +162,8 @@ async def fetch_groups_from_api() -> List[dict]:
 async def sync_bot_state() -> None:
     await asyncio.gather(fetch_config_from_api(), fetch_users_from_api(), fetch_groups_from_api())
 
+async def sync_bot_state() -> None:
+    await asyncio.gather(fetch_config_from_api(), fetch_users_from_api(), fetch_groups_from_api())
 
 def is_private_chat(chat: types.Chat) -> bool:
     return chat.type == "private"
